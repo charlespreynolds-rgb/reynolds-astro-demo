@@ -5,7 +5,8 @@ from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 
 @dag(
     start_date=datetime(2025, 1, 1),
-    schedule="0 */4 * * *",
+    # schedule="0 */4 * * *",  # Re-enable for production - runs every 4 hours
+    schedule=None
     default_args={"owner": "charles", "retries": 2},
     tags=["banking", "fx", "treasury"],
 )
