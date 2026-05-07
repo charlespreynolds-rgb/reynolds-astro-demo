@@ -5,7 +5,7 @@ from pendulum import datetime
     start_date=datetime(2025, 1, 1),
     schedule="@daily",
     default_args={"owner": "charles", "retries": 2},
-    tags=["banking", "lending"],
+    tags=["banking", "lending", "cicd-test"],
 )
 def loan_processing_pipeline():
 
