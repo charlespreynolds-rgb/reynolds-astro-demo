@@ -1,6 +1,7 @@
 from airflow.sdk import dag, task
 from pendulum import datetime
 import requests
+from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 
 @dag(
     start_date=datetime(2025, 1, 1),
@@ -12,11 +13,6 @@ def fx_rate_optimizer():
 
     @task
     def pull_live_fx_rates() -> dict:
-        """
-        Pulls live FX rates from the Exchange Rate API.
-        In production this would connect to Bloomberg, Refinitiv,
-        or the bank's internal rate feed.
-        """
         try:
             response = requests.get("https://open.er-api.com/v6/latest/USD")
             response.raise_for_status()
@@ -57,24 +53,13 @@ def fx_rate_optimizer():
 
     @task
     def identify_optimal_batch_currencies(rate_data: dict) -> dict:
-        """
-        Identifies currencies with the most favorable rates for batching.
-        In production this compares against the bank's internal benchmark
-        and peer bank rates to determine competitive positioning.
-        """
         rates = rate_data["rates"]
         print(f"Analyzing {len(rates)} currency pairs for batch optimization")
 
-        # Reference rates — yesterday's close for comparison
         reference_rates = {
-            "EUR": 0.9210,
-            "GBP": 0.7950,
-            "JPY": 150.20,
-            "CAD": 1.3680,
-            "AUD": 1.5750,
-            "CHF": 0.8960,
-            "CNY": 7.2400,
-            "MXN": 17.1800,
+            "EUR": 0.9210, "GBP": 0.7950, "JPY": 150.20,
+            "CAD": 1.3680, "AUD": 1.5750, "CHF": 0.8960,
+            "CNY": 7.2400, "MXN": 17.1800,
         }
 
         improvements = {}
@@ -101,23 +86,12 @@ def fx_rate_optimizer():
 
     @task
     def detect_rate_volatility(rate_data: dict) -> dict:
-        """
-        Flags unusual rate movements that indicate market volatility.
-        High volatility means the bank should delay batching and wait
-        for rates to stabilize to avoid execution risk.
-        """
         rates = rate_data["rates"]
 
-        # Volatility thresholds by currency pair
         thresholds = {
-            "EUR": 0.005,
-            "GBP": 0.006,
-            "JPY": 0.8,
-            "CAD": 0.007,
-            "AUD": 0.008,
-            "CHF": 0.005,
-            "CNY": 0.010,
-            "MXN": 0.015,
+            "EUR": 0.005, "GBP": 0.006, "JPY": 0.8,
+            "CAD": 0.007, "AUD": 0.008, "CHF": 0.005,
+            "CNY": 0.010, "MXN": 0.015,
         }
 
         reference_rates = {
@@ -138,7 +112,6 @@ def fx_rate_optimizer():
                 print(f"{currency}: Movement {movement:.4f} within normal range")
 
         volatility_detected = len(volatile_currencies) > 0
-        print(f"Volatility detected: {volatility_detected}")
 
         return {
             "volatility_detected": volatility_detected,
@@ -148,12 +121,7 @@ def fx_rate_optimizer():
 
     @task(queue="dbt")
     def calculate_batch_savings(optimization: dict) -> dict:
-        """
-        Calculates the dollar value of savings from batching at
-        current rates versus executing individually at reference rates.
-        Based on the bank's typical daily FX transaction volume.
-        """
-        daily_volume_usd = 1_250_000_000  # $1.25B daily FX volume
+        daily_volume_usd = 1_250_000_000
         favorable_currencies = optimization["favorable_currencies"]
         analysis = optimization["analysis"]
 
@@ -172,11 +140,10 @@ def fx_rate_optimizer():
         avg_bps = round(total_bps_improvement / len(favorable_currencies), 2) if favorable_currencies else 0
 
         print(f"Total potential batch savings: ${total_savings:,.2f}")
-        print(f"Average improvement: {avg_bps} bps across favorable currencies")
 
         return {
             "total_potential_savings_usd": round(total_savings, 2),
-            "average_bps_improvement": avg_bps,
+            "avg_bps_improvement": avg_bps,
             "savings_by_currency": savings_by_currency,
             "favorable_currency_count": len(favorable_currencies)
         }
@@ -187,15 +154,10 @@ def fx_rate_optimizer():
         volatility: dict,
         savings: dict
     ) -> dict:
-        """
-        Generates a recommendation for the treasury desk based on
-        rate favorability and market volatility. This output would
-        feed into the bank's treasury management system in production.
-        """
         favorable_count = optimization["favorable_count"]
         volatility_detected = volatility["volatility_detected"]
         total_savings = savings["total_potential_savings_usd"]
-        avg_bps = savings["average_bps_improvement"]
+        avg_bps = savings["avg_bps_improvement"]
 
         if volatility_detected:
             recommendation = "HOLD"
@@ -212,8 +174,6 @@ def fx_rate_optimizer():
 
         print(f"TREASURY RECOMMENDATION: {recommendation}")
         print(f"Rationale: {rationale}")
-        print(f"Favorable currencies: {optimization['favorable_currencies']}")
-        print(f"Market condition: {volatility['market_condition']}")
 
         return {
             "recommendation": recommendation,
@@ -230,26 +190,62 @@ def fx_rate_optimizer():
         recommendation: dict,
         savings: dict
     ) -> None:
-        """
-        Creates an immutable audit record of the rate analysis and
-        treasury decision. In production this writes to the bank's
-        compliance logging system for regulatory purposes.
-        """
+        import uuid
+
+        run_id = str(uuid.uuid4())[:8]
+
         print("=" * 60)
         print("FX BATCH OPTIMIZATION AUDIT LOG")
         print("=" * 60)
         print(f"Timestamp: {rates['timestamp']}")
         print(f"Base Currency: {rates['base']}")
-        print(f"Currencies Analyzed: {list(rates['rates'].keys())}")
         print(f"Market Condition: {recommendation['market_condition']}")
         print(f"Recommendation: {recommendation['recommendation']}")
-        print(f"Rationale: {recommendation['rationale']}")
         print(f"Estimated Savings: ${savings['total_potential_savings_usd']:,.2f}")
-        print(f"Average BPS Improvement: {savings.get('avg_bps_improvement', 0)}")
-        print("Audit record committed to compliance log")
+        print("Writing audit record to Snowflake...")
+
+        hook = SnowflakeHook(snowflake_conn_id="snowflake_default")
+
+        sql = """
+        INSERT INTO BANKING_DEMO.FX_OPERATIONS.FX_AUDIT_LOG (
+            RUN_ID,
+            TIMESTAMP,
+            BASE_CURRENCY,
+            RECOMMENDATION,
+            RATIONALE,
+            FAVORABLE_CURRENCIES,
+            ESTIMATED_SAVINGS,
+            AVG_BPS_IMPROVEMENT,
+            MARKET_CONDITION
+        ) VALUES (
+            %(run_id)s,
+            %(timestamp)s,
+            %(base_currency)s,
+            %(recommendation)s,
+            %(rationale)s,
+            %(favorable_currencies)s,
+            %(estimated_savings)s,
+            %(avg_bps)s,
+            %(market_condition)s
+        )
+        """
+
+        hook.run(sql, parameters={
+            "run_id": run_id,
+            "timestamp": rates["timestamp"],
+            "base_currency": rates["base"],
+            "recommendation": recommendation["recommendation"],
+            "rationale": recommendation["rationale"],
+            "favorable_currencies": str(recommendation["favorable_currencies"]),
+            "estimated_savings": savings["total_potential_savings_usd"],
+            "avg_bps": savings.get("avg_bps_improvement", 0),
+            "market_condition": recommendation["market_condition"]
+        })
+
+        print(f"Audit record {run_id} successfully written to Snowflake")
+        print(f"Table: BANKING_DEMO.FX_OPERATIONS.FX_AUDIT_LOG")
         print("=" * 60)
 
-    # Wire up the pipeline
     rates = pull_live_fx_rates()
     optimization = identify_optimal_batch_currencies(rates)
     volatility = detect_rate_volatility(rates)
