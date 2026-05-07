@@ -146,7 +146,7 @@ def fx_rate_optimizer():
             "market_condition": "VOLATILE" if volatility_detected else "STABLE"
         }
 
-    @task
+    @task(queue="dbt")
     def calculate_batch_savings(optimization: dict) -> dict:
         """
         Calculates the dollar value of savings from batching at
