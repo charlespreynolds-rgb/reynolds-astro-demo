@@ -5,9 +5,9 @@ from pendulum import datetime
     start_date=datetime(2025, 1, 1),
     schedule=None,
     default_args={"owner": "charles", "retries": 1},
-    tags=["banking", "compliance"],
+    tags=["banking", "compliance", "kyc", "aml"],
 )
-def parallel_compliance_checks():
+def client_compliance_screening():
 
     @task
     def check_kyc() -> dict:
@@ -34,4 +34,4 @@ def parallel_compliance_checks():
     check_credit_bureau()
     check_fraud_score()
 
-parallel_compliance_checks()
+client_compliance_screening()

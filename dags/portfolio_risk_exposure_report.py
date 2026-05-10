@@ -5,9 +5,9 @@ from pendulum import datetime
     start_date=datetime(2025, 1, 1),
     schedule="0 6 * * 1-5",
     default_args={"owner": "charles", "retries": 2},
-    tags=["banking", "risk", "reporting"],
+    tags=["banking", "risk", "regulatory", "reporting"],
 )
-def daily_risk_report():
+def portfolio_risk_exposure_report():
 
     @task
     def extract_overnight_transactions() -> dict:
@@ -42,4 +42,4 @@ def daily_risk_report():
     compliant_data = check_regulatory_thresholds(risk_data)
     publish_risk_report(compliant_data)
 
-daily_risk_report()
+portfolio_risk_exposure_report()

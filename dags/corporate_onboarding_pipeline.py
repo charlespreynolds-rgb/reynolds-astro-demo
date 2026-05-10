@@ -5,9 +5,9 @@ from pendulum import datetime
     start_date=datetime(2025, 1, 1),
     schedule="@daily",
     default_args={"owner": "charles", "retries": 2},
-    tags=["banking", "lending", "cicd-test"],
+    tags=["banking", "onboarding", "corporate"],
 )
-def loan_processing_pipeline():
+def corporate_onboarding_pipeline():
 
     @task
     def ingest_application() -> dict:
@@ -38,4 +38,4 @@ def loan_processing_pipeline():
     checked = run_credit_check(validated)
     generate_decision(checked)
 
-loan_processing_pipeline()
+corporate_onboarding_pipeline()
